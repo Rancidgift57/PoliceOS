@@ -17,10 +17,7 @@ backend/
     interrogation.py            Orchestrates evaluator -> generator -> layered alibi progression -> leaderboard -> hints
     hints.py                     Softens the evaluator's internal reasoning into a player-safe nudge
   sandbox/
-    docker_runner.py            Self-managed Docker execution backend (lazy client init)
-    piston_runner.py            Alternative: hosted Piston code-execution API, no Docker dependency
-    executor.py                  FastAPI route: picks a backend via SANDBOX_BACKEND, grades tests, rate-limited
-    Dockerfile.sandbox          Locked-down image used for every player code run (docker backend only)
+    executor.py                  FastAPI routes: serves the poisoned dataset, grades client-run results, rate-limited
   generation/
     daily_case.py                Template injection (2 templates) + programmatic layered-suspect construction
     dataset_generators.py       Deterministic (non-LLM) poisoned dataset generation for both templates
@@ -67,12 +64,17 @@ and the in-character dialogue model want different tradeoffs. See
   Only the crime narrative wrapped around the fixed template is
   LLM-generated in `daily_case.py`.
 
-- **Sandbox isolation.** Every submission gets its own container: no
-  network, read-only rootfs, memory/PID/CPU limits, and `remove=True` so
-  nothing persists between runs. The player only writes two functions
-  (`clean_data`, `solve`); the harness in `docker_runner.py` handles all
-  file I/O and result serialization so there's no path for the player's
-  code to reach outside `/data`.
+- **Sandbox isolation via the browser, not the server.** Player code runs
+  entirely client-side in Pyodide (CPython compiled to WebAssembly) - see
+  `frontend/src/lib/pyodideRunner.js`. It's sandboxed by the browser's own
+  WASM sandbox instead of a container: no server-side execution at all, so
+  no Docker daemon and no third-party code-execution API (e.g. Piston) to
+  run or trust. The player only writes two functions (`clean_data`,
+  `solve`); the JS harness handles injecting the dataset and parsing the
+  result. Because the backend never sees `source_code` run, `unit_tests`
+  (the expected answers) stay server-side only - the browser reports
+  `{cleaned_count, answer, error}` and `backend/sandbox/executor.py` does
+  the actual pass/fail grading.
 
 - **One Zustand store, three windows.** `useGameStore` is the single
   source of truth for case state, unlocked evidence, solved challenges,
@@ -86,7 +88,6 @@ and the in-character dialogue model want different tradeoffs. See
 # Backend
 cd backend
 pip install -r requirements.txt
-docker build -f sandbox/Dockerfile.sandbox -t police-os-sandbox:python3.11 .
 cp .env.example .env   # fill in OPENROUTER_API_KEY (or HF_TOKEN); optionally set REDIS_URL
 uvicorn main:app --reload
 

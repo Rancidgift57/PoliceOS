@@ -1,22 +1,30 @@
 """
-FastAPI-facing handler for the Database Terminal app. This is the piece the
-frontend IDE pane calls when the player hits "Run".
+FastAPI-facing handler for the Database Terminal app.
+
+Execution model: the player's Python runs entirely client-side in the
+browser via Pyodide (CPython compiled to WebAssembly) - see
+frontend/src/lib/pyodideRunner.js. The backend never runs player source
+code, so there's no Docker daemon and no third-party code-execution API
+(e.g. Piston) dependency at all.
 
 Flow:
-  1. Load the challenge's poisoned dataset + unit test spec from the case file.
-  2. Ship the player's source + poisoned data into an isolated sandbox
-     (self-managed Docker, or a hosted Piston instance - see SANDBOX_BACKEND
-     below and sandbox/piston_runner.py for why you'd pick one over the other).
-  3. Compare the harness output against the expected cleaning/algorithm
-     results defined in the case file's unit_tests.
+  1. GET /dataset/{case_id}/{challenge_id} - frontend fetches the poisoned
+     dataset for the active challenge so it can hand it to the player's
+     code inside Pyodide.
+  2. Player code runs locally in the browser sandbox. The frontend harness
+     produces {cleaned_count, answer, error} exactly like the old
+     docker/piston harness did.
+  3. POST /execute - frontend submits those already-computed results
+     (plus the source, for audit/leaderboard logging - it is NOT re-run).
+     The backend grades them against the case file's unit_tests, which are
+     never sent to the client, so the expected answers stay secret even
+     though execution itself happens off-server.
   4. On full success, unlock the evidence item tied to this challenge.
 """
 from __future__ import annotations
 
 import json
 import logging
-import os
-import time
 from pathlib import Path
 from typing import Any
 
@@ -37,20 +45,6 @@ SANDBOX_RATE_LIMIT = rate_limit("sandbox", max_per_window=15)
 
 DATASET_DIR = Path("backend/generation/datasets")  # populated by the daily generator
 
-# "docker" (default): self-managed Docker daemon, see sandbox/docker_runner.py
-#   and DEPLOYMENT.md Path A - requires a VPS you control.
-# "piston": hosted code-execution API, see sandbox/piston_runner.py - no
-#   Docker dependency at all, so the backend can run on serverless/edge
-#   platforms. Set via .env: SANDBOX_BACKEND=piston
-SANDBOX_BACKEND = os.environ.get("SANDBOX_BACKEND", "docker")
-
-if SANDBOX_BACKEND == "piston":
-    from backend.sandbox.piston_runner import SandboxTimeout, run_submission_in_piston as _run_submission
-else:
-    from backend.sandbox.docker_runner import SandboxTimeout, run_submission_in_docker as _run_submission
-
-logger.info("Sandbox backend: %s", SANDBOX_BACKEND)
-
 
 def _load_poisoned_dataset(dataset_url: str) -> list[dict[str, Any]]:
     """dataset_url is a case-relative path like 'datasets/case_042/txns.json',
@@ -58,6 +52,18 @@ def _load_poisoned_dataset(dataset_url: str) -> list[dict[str, Any]]:
     path = DATASET_DIR.parent.parent / dataset_url  # backend/<dataset_url>
     with open(path) as f:
         return json.load(f)
+
+
+@router.get("/dataset/{case_id}/{challenge_id}")
+async def get_poisoned_dataset(case_id: str, challenge_id: str) -> list[dict[str, Any]]:
+    """Public: the poisoned dataset is the puzzle input the player is meant
+    to clean, not an answer key, so it's safe to serve directly to the
+    browser for the Pyodide runner to consume."""
+    case_file = await get_case_file(case_id)
+    challenge = next((c for c in case_file.challenges if c.id == challenge_id), None)
+    if challenge is None:
+        raise HTTPException(404, f"Challenge '{challenge_id}' not found")
+    return _load_poisoned_dataset(challenge.poisoned_dataset_url)
 
 
 def _grade(result: dict[str, Any], unit_tests: list[dict[str, Any]]) -> ExecutionResult:
@@ -109,18 +115,16 @@ async def execute_submission(submission: CodeSubmission) -> ExecutionResult:
     player_state = await get_player_state(submission.player_id)
     player_state.submission_attempts += 1
 
-    poisoned_dataset = _load_poisoned_dataset(challenge.poisoned_dataset_url)
-
-    start = time.monotonic()
-    try:
-        raw_result = await _run_submission(submission.source_code, poisoned_dataset)
-    except SandboxTimeout:
-        await save_player_state(player_state)
-        return ExecutionResult(status=ExecutionStatus.TIMEOUT, stderr="Execution exceeded the time limit.")
-    runtime_ms = int((time.monotonic() - start) * 1000)
+    # Execution already happened client-side in the browser (Pyodide). We
+    # only grade what came back - never run submission.source_code here.
+    raw_result = {
+        "cleaned_count": submission.cleaned_count,
+        "answer": submission.answer,
+        "error": submission.error,
+    }
 
     graded = _grade(raw_result, challenge.unit_tests)
-    graded.runtime_ms = runtime_ms
+    graded.runtime_ms = submission.client_runtime_ms
 
     if graded.status == ExecutionStatus.PASSED:
         if challenge.id not in player_state.solved_challenge_ids:
@@ -132,7 +136,8 @@ async def execute_submission(submission: CodeSubmission) -> ExecutionResult:
     await save_player_state(player_state)
 
     logger.info(
-        "Sandbox run | player=%s challenge=%s status=%s runtime_ms=%d",
-        submission.player_id, submission.challenge_id, graded.status, runtime_ms,
+        "Sandbox run (client-executed) | player=%s challenge=%s status=%s runtime_ms=%s src_len=%d",
+        submission.player_id, submission.challenge_id, graded.status,
+        submission.client_runtime_ms, len(submission.source_code or ""),
     )
     return graded

@@ -8,20 +8,4 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
-    volumes:
-      # Docker-outside-of-Docker: lets the API container launch sibling
-      # sandbox containers on the HOST's Docker daemon instead of trying
-      # (and failing) to run its own nested dockerd.
-      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
-    depends_on:
-      - sandbox-image-builder
-
-  # One-shot service that just builds the sandbox image on the host
-  # Docker daemon before the API starts accepting traffic.
-  sandbox-image-builder:
-    build:
-      context: .
-      dockerfile: sandbox/Dockerfile.sandbox
-    image: police-os-sandbox:python3.11
-    entrypoint: ["true"]

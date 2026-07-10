@@ -38,14 +38,16 @@ rather than a quick add.
 7. **Leaderboard + streaks.** `backend/leaderboard.py`,
    `components/apps/Leaderboard.jsx`, ranked by total attempts.
 
-8. **Moving off self-managed Docker.** `backend/sandbox/piston_runner.py`
-   is a full alternative sandbox backend using the hosted Piston
-   code-execution API instead of a Docker daemon - same harness contract
-   (`clean_data`/`solve`), same return shape, selected at runtime via
-   `SANDBOX_BACKEND=piston` in `.env` with zero changes to
-   `executor.py`'s grading logic. See DEPLOYMENT.md Path B for what
-   changes operationally (managed Redis becomes mandatory; dataset storage
-   needs to move off local disk).
+8. **Moved off server-side execution entirely.** Player code now runs
+   client-side in the browser via Pyodide (WASM) -
+   `frontend/src/lib/pyodideRunner.js` - same harness contract
+   (`clean_data`/`solve`), same `{cleaned_count, answer, error}` return
+   shape the old Docker/Piston backends produced, so `executor.py`'s
+   grading logic didn't need to change. This removes the Docker daemon
+   requirement (and the third-party code-execution API dependency)
+   entirely rather than swapping one for the other. See DEPLOYMENT.md for
+   what changes operationally (managed Redis becomes mandatory on
+   serverless; dataset storage needs to move off local disk).
 
 9. **Hint system using the evaluator's `reasoning` field.**
    `crag/hints.py` + `POST /api/interrogation/hint`. The evaluator's
@@ -78,8 +80,11 @@ rather than a quick add.
   point (a `_*_template()` function + matching `dataset_generators`
   function) but each one is a design decision about what algorithm/flavor
   to add, not an infrastructure gap.
-- **Piston resource limits.** Path B trades `docker_runner.py`'s explicit
-  `mem_limit`/`pids_limit`/CPU quota for whatever the Piston instance
-  enforces. Self-hosting Piston restores that control; using the public
-  instance doesn't. This is an inherent trade-off of the approach, not
-  something more code fixes.
+- **No server-side resource caps anymore.** The old Docker backend
+  enforced explicit `mem_limit`/`pids_limit`/CPU quota per submission.
+  Pyodide execution happens in the player's own browser tab instead, so
+  those caps are gone by design - a runaway loop only affects that
+  player's tab (bounded by the 10s client-side timeout in
+  `pyodideRunner.js`), not shared server infrastructure. This is an
+  inherent trade-off of moving execution off the server, not something
+  more code fixes.

@@ -1,6 +1,20 @@
 import { create } from "zustand";
+import { runPlayerSubmission } from "@/lib/pyodideRunner";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
+// Poisoned datasets are static per case/challenge, so cache them in-module
+// once fetched instead of re-fetching on every "Run" click.
+const _datasetCache = new Map();
+async function fetchPoisonedDataset(caseId, challengeId) {
+  const key = `${caseId}:${challengeId}`;
+  if (_datasetCache.has(key)) return _datasetCache.get(key);
+  const res = await fetch(`${API_BASE}/api/sandbox/dataset/${caseId}/${challengeId}`);
+  if (!res.ok) throw new Error(`Failed to load dataset (${res.status})`);
+  const dataset = await res.json();
+  _datasetCache.set(key, dataset);
+  return dataset;
+}
 
 /**
  * Single source of truth shared by every Police OS window (IDE, Evidence
@@ -55,8 +69,25 @@ export const useGameStore = create((set, get) => ({
     set((s) => ({ activeWindows: s.activeWindows.filter((w) => w !== id) })),
 
   // ---- sandbox / coding loop ----------------------------------------------
+  // Execution happens client-side in the browser via Pyodide (WASM) - no
+  // Docker daemon and no hosted code-execution API (e.g. Piston) needed.
+  // The backend only grades the {cleaned_count, answer, error} the browser
+  // already computed, against unit_tests it never sends to the client.
   runSubmission: async (challengeId, sourceCode) => {
     const { playerId, caseId } = get();
+
+    let dataset;
+    try {
+      dataset = await fetchPoisonedDataset(caseId, challengeId);
+    } catch (err) {
+      return { status: "runtime_error", stderr: err.message ?? String(err) };
+    }
+
+    const { cleaned_count, answer, error, runtime_ms } = await runPlayerSubmission(
+      sourceCode,
+      dataset
+    );
+
     const res = await fetch(`${API_BASE}/api/sandbox/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -65,6 +96,10 @@ export const useGameStore = create((set, get) => ({
         case_id: caseId,
         challenge_id: challengeId,
         source_code: sourceCode,
+        cleaned_count,
+        answer,
+        error,
+        client_runtime_ms: runtime_ms,
       }),
     });
 

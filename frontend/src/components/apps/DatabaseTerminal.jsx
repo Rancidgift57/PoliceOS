@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Editor from "@monaco-editor/react";
 import { useGameStore } from "@/store/useGameStore";
+import { preloadPyodide } from "@/lib/pyodideRunner";
 
 const STARTER_TEMPLATE = `def clean_data(records):
     """Return only the valid records.
@@ -53,6 +54,20 @@ export default function DatabaseTerminal() {
   const [code, setCode] = useState(STARTER_TEMPLATE);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
+  const [pyodideReady, setPyodideReady] = useState(false);
+
+  // Kick off the Python runtime download as soon as the terminal opens,
+  // so it's warm by the time the player hits "Run" instead of eating the
+  // ~a few seconds first-load cost on their first submission.
+  useEffect(() => {
+    let cancelled = false;
+    preloadPyodide().then(() => {
+      if (!cancelled) setPyodideReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const solved = useMemo(
     () => (challenge ? solvedChallengeIds.includes(challenge.id) : false),
@@ -97,21 +112,22 @@ export default function DatabaseTerminal() {
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <button
           onClick={handleRun}
-          disabled={running}
+          disabled={running || !pyodideReady}
           style={{
             background: "var(--accent-amber-dim)",
             color: "var(--accent-amber)",
             border: "1px solid var(--accent-amber-dim)",
             padding: "6px 14px",
             borderRadius: 2,
-            cursor: running ? "default" : "pointer",
+            cursor: running || !pyodideReady ? "default" : "pointer",
             fontFamily: "var(--mono-font)",
             fontSize: 12,
             textTransform: "uppercase",
             letterSpacing: "0.04em",
+            opacity: pyodideReady ? 1 : 0.5,
           }}
         >
-          {running ? "Running…" : "Run against evidence"}
+          {!pyodideReady ? "Loading Python runtime…" : running ? "Running…" : "Run against evidence"}
         </button>
 
         {result && (

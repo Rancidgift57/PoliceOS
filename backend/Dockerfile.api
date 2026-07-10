@@ -1,12 +1,8 @@
-# Image for the FastAPI app. NOT the player-code sandbox - see
-# sandbox/Dockerfile.sandbox for that. This image needs the `docker` CLI
-# installed so it can talk to the host daemon via the mounted socket
-# (docker-outside-of-docker, see docker-compose.yml).
+# Image for the FastAPI app. Player code never runs here - it executes
+# client-side in the browser via Pyodide (see
+# frontend/src/lib/pyodideRunner.js) - so this image is a plain Python ASGI
+# app with no Docker-in-Docker or sandboxing dependencies.
 FROM python:3.11-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    docker.io \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .

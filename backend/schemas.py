@@ -176,10 +176,21 @@ class ExecutionStatus(str, Enum):
 
 
 class CodeSubmission(BaseModel):
+    """Sent AFTER the player's code has already run client-side in the
+    browser (Pyodide/WASM - see frontend/src/lib/pyodideRunner.js). The
+    backend never executes source_code; it's included purely so the run is
+    logged/auditable, and grading still happens server-side against the
+    secret unit_tests in the case file so the expected answers never ship
+    to the client."""
+
     player_id: str
     case_id: str
     challenge_id: str
     source_code: str
+    cleaned_count: Optional[int] = None
+    answer: Optional[Any] = None
+    error: Optional[str] = None
+    client_runtime_ms: Optional[int] = None
 
 
 class ExecutionResult(BaseModel):
