@@ -1,0 +1,108 @@
+:root {
+  --os-bg: #0b0d0f;
+  --os-bg-grid: #12151a;
+  --panel-bg: #14171c;
+  --panel-border: #2a2f38;
+  --panel-header: #1a1e24;
+  --text-primary: #e8e6df;
+  --text-dim: #8a8f98;
+  --accent-amber: #d4a017;
+  --accent-amber-dim: #6b5310;
+  --accent-red: #b3423f;
+  --accent-blue: #4a7ba6;
+  --mono-font: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --serif-font: "Courier Prime", "IBM Plex Mono", monospace;
+}
+
+.police-os {
+  background-color: var(--os-bg);
+  background-image:
+    linear-gradient(var(--os-bg-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--os-bg-grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+  color: var(--text-primary);
+  font-family: var(--mono-font);
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+.os-window {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+}
+
+.os-window.focused {
+  border-color: var(--accent-amber-dim);
+  box-shadow: 0 8px 32px rgba(212, 160, 23, 0.12), 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.os-window-header {
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--panel-border);
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: grab;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.os-window-header.focused {
+  color: var(--accent-amber);
+}
+
+.os-window-close {
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 6px;
+}
+.os-window-close:hover {
+  color: var(--accent-red);
+}
+
+.os-window-body {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+.os-taskbar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  background: var(--panel-header);
+  border-top: 1px solid var(--panel-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.os-taskbar-item {
+  font-size: 11px;
+  color: var(--text-dim);
+  border: 1px solid var(--panel-border);
+  padding: 3px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.os-taskbar-item.active {
+  color: var(--accent-amber);
+  border-color: var(--accent-amber-dim);
+}

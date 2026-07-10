@@ -1,0 +1,13 @@
+# Minimal, locked-down image for executing untrusted player code.
+# Build once, reuse for every submission:
+#   docker build -f backend/sandbox/Dockerfile.sandbox -t police-os-sandbox:python3.11 .
+FROM python:3.11-slim
+
+# No pip installs at runtime, no network, no extra packages beyond stdlib.
+# If challenges need pandas/numpy, bake them in here at build time instead
+# of letting player code install anything.
+RUN useradd --no-create-home --uid 10001 sandboxuser
+USER sandboxuser
+
+WORKDIR /data
+ENTRYPOINT ["python"]
