@@ -24,9 +24,12 @@ logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="Police OS Backend", version="0.1.0")
 
+origin_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://[a-zA-Z0-9-]+\.vercel\.app$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js dev server
+    allow_origin_regex=origin_regex,
+    allow_credentials=True, # Crucial if you pass headers, tokens, or cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
