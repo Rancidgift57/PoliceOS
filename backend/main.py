@@ -14,6 +14,7 @@ load_dotenv()  # must run before backend.llm_client reads env vars at import tim
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.case import router as case_router
 from backend.crag.interrogation import router as interrogation_router
 from backend.generation.daily_case import router as generation_router
 from backend.leaderboard import router as leaderboard_router
@@ -30,6 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(case_router)
 app.include_router(interrogation_router)
 app.include_router(sandbox_router)
 app.include_router(generation_router)

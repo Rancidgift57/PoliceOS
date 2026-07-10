@@ -5,7 +5,6 @@ import DatabaseTerminal from "@/components/apps/DatabaseTerminal";
 import EvidenceBoard from "@/components/apps/EvidenceBoard";
 import SecureMessenger from "@/components/apps/SecureMessenger";
 import Leaderboard from "@/components/apps/Leaderboard";
-import "@/styles/theme.css";
 
 const APP_REGISTRY = {
   terminal: {
