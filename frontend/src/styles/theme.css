@@ -12,7 +12,256 @@
   --accent-blue: #4a7ba6;
   --mono-font: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --serif-font: "Courier Prime", "IBM Plex Mono", monospace;
+
+  /* Tricolor accents - used sparingly as a single hairline rule / stamp
+     motif, never as large color fields, so the OS stays a dark case-file
+     terminal with an Indian badge-of-office detail rather than a flag. */
+  --tricolor-saffron: #d97b2e;
+  --tricolor-white: #e8e6df;
+  --tricolor-green: #1c7a4d;
 }
+
+/* ------------------------------------------------------------------- */
+/* Login / Register screen                                              */
+/* ------------------------------------------------------------------- */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--os-bg);
+  background-image:
+    linear-gradient(var(--os-bg-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--os-bg-grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+  font-family: var(--mono-font);
+  color: var(--text-primary);
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.login-tricolor-rule {
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--tricolor-saffron) 0 33%,
+    var(--tricolor-white) 33% 66%,
+    var(--tricolor-green) 66% 100%
+  );
+}
+
+.login-header {
+  padding: 22px 26px 8px;
+  text-align: center;
+}
+
+.login-badge-seal {
+  width: 62px;
+  height: 62px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-amber-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: var(--accent-amber);
+  background: radial-gradient(circle at 50% 40%, rgba(212, 160, 23, 0.14), transparent 70%);
+}
+
+.login-title {
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.login-subtitle {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  letter-spacing: 0.03em;
+}
+
+.login-body {
+  padding: 18px 26px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-field label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+}
+
+.login-field input {
+  width: 100%;
+  background: var(--os-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 2px;
+  color: var(--text-primary);
+  font-family: var(--mono-font);
+  font-size: 13px;
+  padding: 9px 10px;
+  box-sizing: border-box;
+}
+.login-field input:focus {
+  outline: none;
+  border-color: var(--accent-amber-dim);
+}
+
+.login-submit {
+  margin-top: 4px;
+  background: var(--accent-amber-dim);
+  color: var(--os-bg);
+  border: none;
+  border-radius: 2px;
+  padding: 10px;
+  font-family: var(--mono-font);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.login-submit:hover { background: var(--accent-amber); }
+.login-submit:disabled { opacity: 0.5; cursor: default; }
+
+.login-error {
+  font-size: 11.5px;
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: 2px;
+  padding: 7px 9px;
+  background: rgba(179, 66, 63, 0.08);
+}
+
+.login-toggle {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.login-toggle button {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  font-family: var(--mono-font);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.login-footnote {
+  font-size: 9.5px;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 0 26px 18px;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------- */
+/* Case Files board (tutorial / today / new / pending)                  */
+/* ------------------------------------------------------------------- */
+.case-board { display: flex; flex-direction: column; gap: 14px; font-size: 12px; }
+
+.case-board-section-title {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.case-board-section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--panel-border);
+}
+
+.case-tile {
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  padding: 9px 11px;
+  margin-bottom: 7px;
+  cursor: pointer;
+  background: var(--os-bg);
+  transition: border-color 0.15s ease;
+}
+.case-tile:hover { border-color: var(--accent-amber-dim); }
+.case-tile.is-active { border-color: var(--accent-amber); }
+
+.case-tile-codename {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-amber);
+}
+.case-tile-title { color: var(--text-primary); margin-top: 2px; }
+.case-tile-meta { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+
+.case-tile-tag {
+  display: inline-block;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+}
+.case-tile-tag.pending { background: rgba(179, 66, 63, 0.18); color: var(--accent-red); }
+.case-tile-tag.new { background: rgba(28, 122, 77, 0.2); color: var(--tricolor-green); }
+.case-tile-tag.solved { background: rgba(74, 123, 166, 0.2); color: var(--accent-blue); }
+.case-tile-tag.tutorial { background: rgba(212, 160, 23, 0.18); color: var(--accent-amber); }
+
+.case-board-empty { color: var(--text-dim); font-size: 11px; font-style: italic; }
+
+/* ------------------------------------------------------------------- */
+/* Officer chip (top-right of the OS desktop)                           */
+/* ------------------------------------------------------------------- */
+.officer-chip {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+.officer-chip .badge-number {
+  color: var(--accent-amber);
+  letter-spacing: 0.05em;
+}
+.officer-chip button {
+  background: none;
+  border: 1px solid var(--panel-border);
+  color: var(--text-dim);
+  font-family: var(--mono-font);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.officer-chip button:hover { border-color: var(--accent-red); color: var(--accent-red); }
 
 .police-os {
   background-color: var(--os-bg);

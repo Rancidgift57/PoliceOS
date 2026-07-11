@@ -23,10 +23,61 @@ async function fetchPoisonedDataset(caseId, challengeId) {
  * light up a new pin on the Evidence Board and unlock new dialogue options
  * in the Messenger without any window-to-window message passing.
  */
+const AUTH_STORAGE_KEY = "police-os:auth";
+
 export const useGameStore = create((set, get) => ({
+  // ---- auth ----------------------------------------------------------------
+  authToken: null,
+  user: null, // { player_id, username, badge_number, display_name }
+  authHydrated: false,
+
+  hydrateAuth: () => {
+    try {
+      const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        set({ authToken: data.token, user: data });
+      }
+    } catch {
+      // corrupt/blocked storage - just fall through to the login screen
+    } finally {
+      set({ authHydrated: true });
+    }
+  },
+
+  register: async (username, password, displayName) => {
+    const res = await fetch(`${API_BASE}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, display_name: displayName }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail ?? "Registration failed");
+    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
+    set({ authToken: data.token, user: data });
+    return data;
+  },
+  login: async (username, password) => {
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail ?? "Login failed");
+    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
+    set({ authToken: data.token, user: data });
+    return data;
+  },
+  logout: () => {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    set({ authToken: null, user: null, playerId: null, caseId: null, caseFile: null });
+  },
+
   playerId: null,
   caseId: null,
-  caseFile: null, // { case_id, title, victim, crime_scene, narrative_intro, suspects, evidence, challenges }
+  caseFile: null, // { case_id, title, codename, victim, crime_scene, narrative_intro, suspects, evidence, challenges }
+  caseBoard: null, // { tutorial, today, new_challenges, pending_challenges }
 
   unlockedEvidenceIds: [],
   solvedChallengeIds: [],
@@ -38,13 +89,19 @@ export const useGameStore = create((set, get) => ({
 
   rateLimitNotice: null, // { scope, message } - set on a 429, cleared on next successful call
 
-  activeWindows: ["terminal", "evidence", "messenger"],
+  activeWindows: ["terminal", "evidence", "messenger", "casefiles"],
   focusedWindow: "terminal",
 
   // ---- bootstrap ---------------------------------------------------------
-  initSession: async (playerId) => {
+  // caseId is optional: omit it to load today's rotating daily case, or
+  // pass "case_tutorial" / any archived case_id (from the Case Files board)
+  // to load that one instead. Each is tracked as independent progress
+  // server-side, so switching cases never clobbers another case's state.
+  initSession: async (playerId, caseId) => {
     set({ playerId });
-    const res = await fetch(`${API_BASE}/api/case/current?player_id=${playerId}`);
+    const qs = new URLSearchParams({ player_id: playerId });
+    if (caseId) qs.set("case_id", caseId);
+    const res = await fetch(`${API_BASE}/api/case/current?${qs.toString()}`);
     const caseFile = await res.json();
     set({
       caseId: caseFile.case_id,
@@ -55,7 +112,22 @@ export const useGameStore = create((set, get) => ({
       suspectBroken: caseFile.player_state?.suspect_broken ?? {},
       suspectLayerIndex: caseFile.player_state?.suspect_layer_index ?? {},
       caseSolved: caseFile.player_state?.case_solved ?? false,
+      chatHistory: caseFile.player_state?.chat_history ?? {},
     });
+    return caseFile;
+  },
+
+  // ---- Case Files board (tutorial / today / new / pending) ---------------
+  fetchCaseBoard: async () => {
+    const { playerId } = get();
+    const res = await fetch(`${API_BASE}/api/case/board?player_id=${playerId}`);
+    const board = await res.json();
+    set({ caseBoard: board });
+    return board;
+  },
+  switchCase: async (caseId) => {
+    const { playerId, initSession } = get();
+    return initSession(playerId, caseId);
   },
 
   // ---- window manager ------------------------------------------------------
@@ -130,7 +202,7 @@ export const useGameStore = create((set, get) => ({
    * (trap_successful, unlocked evidence, etc).
    */
   streamInterrogationMessage: async (suspectId, message, onToken) => {
-    const { playerId } = get();
+    const { playerId, caseId } = get();
 
     set((s) => ({
       chatHistory: {
@@ -142,7 +214,7 @@ export const useGameStore = create((set, get) => ({
     const res = await fetch(`${API_BASE}/api/interrogation/message/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ player_id: playerId, suspect_id: suspectId, message }),
+      body: JSON.stringify({ player_id: playerId, suspect_id: suspectId, message, case_id: caseId }),
     });
 
     if (res.status === 429) {
@@ -220,11 +292,11 @@ export const useGameStore = create((set, get) => ({
 
   // ---- hints ---------------------------------------------------------------
   fetchHint: async (suspectId) => {
-    const { playerId } = get();
+    const { playerId, caseId } = get();
     const res = await fetch(`${API_BASE}/api/interrogation/hint`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ player_id: playerId, suspect_id: suspectId }),
+      body: JSON.stringify({ player_id: playerId, suspect_id: suspectId, case_id: caseId }),
     });
     if (res.status === 429) {
       const detail = (await res.json().catch(() => ({}))).detail ?? "Slow down on hint requests.";
