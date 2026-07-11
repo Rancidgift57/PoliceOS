@@ -18,6 +18,8 @@ from typing import Any, Optional
 
 import libsql_client
 
+from backend.paths import BACKEND_DIR
+
 _TURSO_URL = os.environ.get("TURSO_DATABASE_URL")
 _TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
@@ -30,9 +32,11 @@ def _make_client() -> libsql_client.Client:
         # databases; accept either scheme the user pastes from the Turso CLI.
         url = _TURSO_URL.replace("https://", "libsql://", 1) if _TURSO_URL.startswith("https://") else _TURSO_URL
         return libsql_client.create_client(url=url, auth_token=_TURSO_TOKEN)
-    # Local fallback: an on-disk SQLite file next to the backend, so accounts
-    # created in local dev survive restarts too.
-    return libsql_client.create_client(url="file:backend/local_users.db")
+    # Local fallback: an on-disk SQLite file next to this module (backend/),
+    # anchored by absolute path so it works no matter what directory uvicorn
+    # was launched from - not "backend/local_users.db" relative to CWD.
+    local_path = BACKEND_DIR / "local_users.db"
+    return libsql_client.create_client(url=f"file:{local_path.as_posix()}")
 
 
 def get_client() -> libsql_client.Client:

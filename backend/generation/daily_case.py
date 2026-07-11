@@ -22,7 +22,6 @@ import logging
 import random
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks
@@ -30,13 +29,14 @@ from pydantic import BaseModel, Field
 
 from backend.generation.indian_theme import challenge_label, pick_codename
 from backend.llm_client import NARRATIVE_MODEL, structured_completion
+from backend.paths import BACKEND_DIR
 from backend.schemas import AlibiLayer, CaseFile, CodingChallenge, EvidenceItem, Suspect
 from backend.state_store import save_case_file
 
 logger = logging.getLogger("generation.daily_case")
 router = APIRouter(prefix="/api/admin", tags=["generation"])
 
-DATASET_DIR = Path("backend/generation/datasets")
+DATASET_DIR = BACKEND_DIR / "generation" / "datasets"
 
 
 # --------------------------------------------------------------------------- #
@@ -236,7 +236,7 @@ async def generate_daily_case(template_index: Optional[int] = None) -> CaseFile:
     dataset_relpath = f"generation/datasets/{case_id}/{template['dataset_filename']}"
 
     dataset = template["generator"](seed=case_id, **template["generator_kwargs"])
-    out_path = DATASET_DIR.parent.parent / dataset_relpath
+    out_path = BACKEND_DIR / dataset_relpath
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(dataset))
 

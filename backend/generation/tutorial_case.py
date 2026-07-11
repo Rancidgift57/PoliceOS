@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 
 from backend.generation.indian_theme import TUTORIAL_CODENAME, TUTORIAL_TITLE
+from backend.paths import BACKEND_DIR
 from backend.schemas import AlibiLayer, CaseFile, CodingChallenge, EvidenceItem, Suspect
 from backend.state_store import save_case_file
 
@@ -39,7 +39,7 @@ def _write_tutorial_dataset() -> None:
         {"badge": 1188, "post": "Fort Chowki", "shift": "night"},
         {"badge": 9004, "post": "CST Junction", "shift": "day"},
     ]
-    out_path = Path("backend") / _DATASET_RELPATH
+    out_path = BACKEND_DIR / _DATASET_RELPATH
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(records))
 

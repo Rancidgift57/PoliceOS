@@ -25,12 +25,12 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.rate_limit import rate_limit
+from backend.paths import BACKEND_DIR
 from backend.schemas import (
     CodeSubmission,
     ExecutionResult,
@@ -43,13 +43,13 @@ router = APIRouter(prefix="/api/sandbox", tags=["sandbox"])
 
 SANDBOX_RATE_LIMIT = rate_limit("sandbox", max_per_window=15)
 
-DATASET_DIR = Path("backend/generation/datasets")  # populated by the daily generator
+DATASET_DIR = BACKEND_DIR / "generation" / "datasets"  # populated by the daily generator
 
 
 def _load_poisoned_dataset(dataset_url: str) -> list[dict[str, Any]]:
-    """dataset_url is a case-relative path like 'datasets/case_042/txns.json',
+    """dataset_url is a case-relative path like 'generation/datasets/case_042/txns.json',
     written by the daily generator alongside the rest of the case file."""
-    path = DATASET_DIR.parent.parent / dataset_url  # backend/<dataset_url>
+    path = BACKEND_DIR / dataset_url
     with open(path) as f:
         return json.load(f)
 
