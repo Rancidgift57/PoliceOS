@@ -73,12 +73,27 @@ class CaseFile(BaseModel):
     case_id: str
     generated_at: datetime
     title: str
+    codename: str = Field(default="", description="Indian-themed 'Operation <Codename>' label, e.g. 'Operation Bijli'")
+    is_tutorial: bool = Field(default=False, description="True only for the fixed first-timer tutorial case")
     victim: str
     crime_scene: str
     narrative_intro: str
     suspects: List[Suspect]
     evidence: List[EvidenceItem]
     challenges: List[CodingChallenge]
+
+
+class CaseSummary(BaseModel):
+    """Lightweight listing used by the Case Files board (tutorial / today /
+    new / pending) so the frontend doesn't have to download full case
+    payloads just to render a list of tiles."""
+    case_id: str
+    title: str
+    codename: str
+    generated_at: datetime
+    is_tutorial: bool = False
+    solved: bool = False
+    started: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -139,6 +154,9 @@ class InterrogationRequest(BaseModel):
     player_id: str
     suspect_id: str
     message: str
+    case_id: Optional[str] = Field(
+        default=None, description="Which case this interrogation belongs to; defaults to the player's latest case"
+    )
 
 
 class InterrogationResponse(BaseModel):
@@ -154,6 +172,7 @@ class InterrogationResponse(BaseModel):
 class HintRequest(BaseModel):
     player_id: str
     suspect_id: str
+    case_id: Optional[str] = None
 
 
 class HintResponse(BaseModel):

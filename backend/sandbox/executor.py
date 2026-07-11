@@ -112,7 +112,7 @@ async def execute_submission(submission: CodeSubmission) -> ExecutionResult:
     if challenge is None:
         raise HTTPException(404, f"Challenge '{submission.challenge_id}' not found")
 
-    player_state = await get_player_state(submission.player_id)
+    player_state = await get_player_state(submission.player_id, submission.case_id)
     player_state.submission_attempts += 1
 
     # Execution already happened client-side in the browser (Pyodide). We

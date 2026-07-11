@@ -41,7 +41,7 @@ async def _prepare_turn(req: InterrogationRequest):
     """Shared setup for both the JSON and streaming endpoints: load state,
     resolve the suspect and their current (unbroken) layer, and grade the
     message. Returns everything the two routes need to diverge on generation."""
-    player_state = await get_player_state(req.player_id)
+    player_state = await get_player_state(req.player_id, req.case_id)
     case_file = await get_case_file(player_state.case_id)
 
     suspect = next((s for s in case_file.suspects if s.id == req.suspect_id), None)
@@ -201,7 +201,7 @@ async def get_hint(req: HintRequest) -> HintResponse:
     in-world nudge - but only once the player has failed enough consecutive
     attempts at their CURRENT layer (HINT_THRESHOLD), so it doesn't trivialize
     a case someone is making steady progress on."""
-    player_state = await get_player_state(req.player_id)
+    player_state = await get_player_state(req.player_id, req.case_id)
     case_file = await get_case_file(player_state.case_id)
 
     suspect = next((s for s in case_file.suspects if s.id == req.suspect_id), None)

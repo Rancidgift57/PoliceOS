@@ -23,7 +23,12 @@ _CASE_ID_DATE_RE = re.compile(r"^case_(\d{8})_")
 
 async def save_case_file(case_file: CaseFile) -> None:
     await cache_set_json(f"case:{case_file.case_id}", case_file.model_dump(mode="json"))
-    await cache_set_json(_LATEST_CASE_KEY, case_file.case_id)
+    if not case_file.is_tutorial:
+        # The tutorial is a fixed, always-available case, not part of the
+        # rotating daily lineup, so it never becomes "latest" and never
+        # shows up in the new/pending archive.
+        await cache_set_json(_LATEST_CASE_KEY, case_file.case_id)
+        await add_case_to_archive(case_file)
 
 
 async def get_case_file(case_id: str) -> CaseFile:
@@ -40,23 +45,90 @@ async def get_latest_case_id() -> str:
     return case_id
 
 
-async def get_player_state(player_id: str) -> PlayerState:
-    raw = await cache_get_json(f"player:{player_id}")
+def _player_key(player_id: str, case_id: str) -> str:
+    return f"player:{player_id}:{case_id}"
+
+
+async def get_player_state(player_id: str, case_id: Optional[str] = None) -> PlayerState:
+    """State is keyed per (player, case) so a player can have independent,
+    simultaneous progress on the tutorial, today's case, and any backlog of
+    unsolved past cases sitting in their "pending challenges" list -
+    starting the tutorial doesn't touch today's case progress, and vice
+    versa. If case_id is omitted, defaults to whatever case is currently
+    latest (this is what all the existing single-case call sites want)."""
+    resolved_case_id = case_id or await get_latest_case_id()
+    raw = await cache_get_json(_player_key(player_id, resolved_case_id))
     if raw is not None:
         return PlayerState.model_validate(raw)
 
-    latest_case_id = await get_latest_case_id()
-    state = PlayerState(player_id=player_id, case_id=latest_case_id)
+    state = PlayerState(player_id=player_id, case_id=resolved_case_id)
     await save_player_state(state)
     return state
 
 
 async def save_player_state(state: PlayerState) -> None:
     await cache_set_json(
-        f"player:{state.player_id}",
+        _player_key(state.player_id, state.case_id),
         state.model_dump(mode="json"),
         ttl_seconds=PLAYER_STATE_TTL_SECONDS,
     )
+
+
+async def has_player_state(player_id: str, case_id: str) -> bool:
+    """True only if the player has actually touched this case (i.e. state
+    was persisted) - used to distinguish "new, never opened" cases from
+    ones with saved-but-unsolved progress."""
+    raw = await cache_get_json(_player_key(player_id, case_id))
+    return raw is not None
+
+
+# --------------------------------------------------------------------------- #
+# Case archive - a running list of every case ever generated (title,
+# codename, date), so the Case Files board can list "new" and "pending"
+# cases without downloading each one's full payload.
+# --------------------------------------------------------------------------- #
+
+_CASE_ARCHIVE_KEY = "case:archive_ids"
+
+
+async def add_case_to_archive(case_file: CaseFile) -> None:
+    ids: List[str] = await cache_get_json(_CASE_ARCHIVE_KEY) or []
+    if case_file.case_id not in ids:
+        ids.append(case_file.case_id)
+        await cache_set_json(_CASE_ARCHIVE_KEY, ids)
+
+
+async def list_archived_case_ids() -> List[str]:
+    return await cache_get_json(_CASE_ARCHIVE_KEY) or []
+
+
+# --------------------------------------------------------------------------- #
+# Pending-challenges backlog - per player list of case_ids they had open but
+# hadn't solved when the daily rotation moved on. Populated by
+# backend/scheduler.py at midnight; cleared automatically the moment that
+# case is solved (see record_case_solved below).
+# --------------------------------------------------------------------------- #
+
+def _pending_key(player_id: str) -> str:
+    return f"player:{player_id}:pending_case_ids"
+
+
+async def get_pending_case_ids(player_id: str) -> List[str]:
+    return await cache_get_json(_pending_key(player_id)) or []
+
+
+async def add_pending_case(player_id: str, case_id: str) -> None:
+    pending = await get_pending_case_ids(player_id)
+    if case_id not in pending:
+        pending.append(case_id)
+        await cache_set_json(_pending_key(player_id), pending)
+
+
+async def remove_pending_case(player_id: str, case_id: str) -> None:
+    pending = await get_pending_case_ids(player_id)
+    if case_id in pending:
+        pending.remove(case_id)
+        await cache_set_json(_pending_key(player_id), pending)
 
 
 # --------------------------------------------------------------------------- #
@@ -137,6 +209,8 @@ async def record_case_solved(state: PlayerState) -> PlayerStats:
     rank = await cache_incr(f"leaderboard:{state.case_id}:next_rank")
     await cache_set_json(f"leaderboard:{state.case_id}:entry:{rank}", entry.model_dump(mode="json"))
     await cache_set_json(f"leaderboard:{state.case_id}:count", rank)
+
+    await remove_pending_case(state.player_id, state.case_id)
 
     return stats
 

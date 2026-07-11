@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel, Field
 
+from backend.generation.indian_theme import challenge_label, pick_codename
 from backend.llm_client import NARRATIVE_MODEL, structured_completion
 from backend.schemas import AlibiLayer, CaseFile, CodingChallenge, EvidenceItem, Suspect
 from backend.state_store import save_case_file
@@ -249,11 +250,13 @@ async def generate_daily_case(template_index: Optional[int] = None) -> CaseFile:
 
     suspects = _build_suspects(narrative, challenge_evidence_id)
     evidence = _build_evidence(narrative, challenge_evidence_id, suspects)
+    codename = pick_codename(case_id)
 
     case_file = CaseFile(
         case_id=case_id,
         generated_at=datetime.now(timezone.utc),
         title=narrative.title,
+        codename=f"Operation {codename}",
         victim=narrative.victim,
         crime_scene=narrative.crime_scene,
         narrative_intro=narrative.narrative_intro,
@@ -262,7 +265,7 @@ async def generate_daily_case(template_index: Optional[int] = None) -> CaseFile:
         challenges=[
             CodingChallenge(
                 id=challenge_id,
-                title=template["challenge_title"],
+                title=f"{challenge_label(case_id, 0)}: {template['challenge_title']}",
                 prompt=(
                     f"{narrative.narrative_intro}\n\n"
                     f"Clean the poisoned dataset, then run the algorithm to recover the evidence."
