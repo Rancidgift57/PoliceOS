@@ -3,39 +3,37 @@ import Editor from "@monaco-editor/react";
 import { useGameStore } from "@/store/useGameStore";
 import { preloadPyodide } from "@/lib/pyodideRunner";
 
-const STARTER_TEMPLATE = `def clean_data(records):
-    """Return only the valid records.
-    A valid record has a positive integer timestamp, a numeric amount,
-    and a unique record_id."""
-    seen_ids = set()
+function buildStarterTemplate(challenge) {
+  // Field names differ per case (this project's dataset templates use
+  // different shapes - transaction records, cell pings, this tutorial's
+  // duty log, or whatever an LLM-generated daily case invents) so there's
+  // no one hardcoded set of field names that's correct for every
+  // challenge. The player's actual field names come from the prompt /
+  // cleaning spec shown above the editor; this skeleton just gets the
+  // clean_data/solve function contract right and echoes that spec back as
+  // a reminder, rather than guessing field names that would silently be
+  // wrong (and throw a runtime KeyError) for most challenges.
+  const cleaningSpec = challenge?.cleaning_spec ?? "See the cleaning rule above.";
+  const algorithmSpec = challenge?.algorithm_spec ?? "See the algorithm spec above.";
+  return `def clean_data(records):
+    """Cleaning rule:
+    ${cleaningSpec}
+    """
     cleaned = []
     for r in records:
-        if r["timestamp"] <= 0:
-            continue
-        if not isinstance(r["amount"], (int, float)):
-            continue
-        if r["record_id"] in seen_ids:
-            continue
-        seen_ids.add(r["record_id"])
+        # TODO: keep only the records that satisfy the cleaning rule above
         cleaned.append(r)
     return cleaned
 
 
 def solve(cleaned_records):
-    """Binary search the cleaned, timestamp-sorted records for the
-    transaction tied to the crime. Return its record_id."""
-    records = sorted(cleaned_records, key=lambda r: r["timestamp"])
-    target_ts = records[0]["timestamp"] + 500 * 37  # threshold from the case brief
-
-    lo, hi = 0, len(records) - 1
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        if records[mid]["timestamp"] < target_ts:
-            lo = mid + 1
-        else:
-            hi = mid - 1
-    return records[lo]["record_id"]
+    """Algorithm:
+    ${algorithmSpec}
+    """
+    # TODO: compute and return the answer described above
+    return len(cleaned_records)
 `;
+}
 
 const STATUS_LABEL = {
   passed: "MATCH FOUND",
@@ -51,10 +49,19 @@ export default function DatabaseTerminal() {
   const solvedChallengeIds = useGameStore((s) => s.solvedChallengeIds);
 
   const challenge = caseFile?.challenges?.[0];
-  const [code, setCode] = useState(STARTER_TEMPLATE);
+  const [code, setCode] = useState(() => buildStarterTemplate(challenge));
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [pyodideReady, setPyodideReady] = useState(false);
+
+  // Reset to a fresh starter whenever the player switches to a different
+  // challenge (e.g. tutorial -> today's case) - otherwise code written for
+  // one dataset's fields would silently carry over and throw a runtime
+  // KeyError against the next case's differently-shaped records.
+  useEffect(() => {
+    setCode(buildStarterTemplate(challenge));
+    setResult(null);
+  }, [challenge?.id]);
 
   // Kick off the Python runtime download as soon as the terminal opens,
   // so it's warm by the time the player hits "Run" instead of eating the

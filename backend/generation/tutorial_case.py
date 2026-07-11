@@ -105,9 +105,9 @@ def build_tutorial_case() -> CaseFile:
                 title="Pehchaan 1: Clean the Duty Log",
                 prompt=(
                     "Some entries in this duty log are corrupted: a non-numeric 'badge' field, "
-                    "or a missing 'post'. Write Python that filters `records` down to the valid "
-                    "ones (numeric badge AND non-null post), then sets `answer` to the count of "
-                    "valid records and `cleaned_count` to that same count."
+                    "or a missing 'post'. Define clean_data(records) to return only the valid "
+                    "entries (numeric badge AND non-null post), and solve(cleaned_records) to "
+                    "return the count of valid entries."
                 ),
                 poisoned_dataset_url=_DATASET_RELPATH,
                 cleaning_spec=(
