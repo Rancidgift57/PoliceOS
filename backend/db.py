@@ -28,9 +28,22 @@ _client: Optional[libsql_client.Client] = None
 
 def _make_client() -> libsql_client.Client:
     if _TURSO_URL:
-        # libsql_client wants "libsql://..." (or "wss://...") for remote Turso
-        # databases; accept either scheme the user pastes from the Turso CLI.
-        url = _TURSO_URL.replace("https://", "libsql://", 1) if _TURSO_URL.startswith("https://") else _TURSO_URL
+        # libsql-client can talk to Turso two ways: a persistent WebSocket
+        # (triggered by a "libsql://" or "wss://" URL) or plain stateless
+        # HTTP (triggered by "https://"). The WebSocket path has been the
+        # one failing here (400 on the handshake) - this package hasn't
+        # been updated since ~2023 and doesn't reliably work with newer
+        # aiohttp versions or on some hosts' outbound networking (Render
+        # included). HTTP is simpler, has no persistent connection to fail,
+        # and Turso supports it identically - so always normalize to it
+        # regardless of which scheme the Turso CLI gave you.
+        url = _TURSO_URL
+        if url.startswith("libsql://"):
+            url = "https://" + url[len("libsql://"):]
+        elif url.startswith("wss://"):
+            url = "https://" + url[len("wss://"):]
+        elif url.startswith("ws://"):
+            url = "http://" + url[len("ws://"):]
         return libsql_client.create_client(url=url, auth_token=_TURSO_TOKEN)
     # Local fallback: an on-disk SQLite file next to this module (backend/),
     # anchored by absolute path so it works no matter what directory uvicorn
