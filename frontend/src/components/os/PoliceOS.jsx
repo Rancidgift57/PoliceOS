@@ -6,8 +6,14 @@ import EvidenceBoard from "@/components/apps/EvidenceBoard";
 import SecureMessenger from "@/components/apps/SecureMessenger";
 import Leaderboard from "@/components/apps/Leaderboard";
 import CaseFiles from "@/components/apps/CaseFiles";
+import HowToPlay from "@/components/apps/HowToPlay";
 
 const APP_REGISTRY = {
+  howto: {
+    title: "HOW_TO_PLAY // guide",
+    component: HowToPlay,
+    initial: { x: 120, y: 60, w: 560, h: 520 },
+  },
   terminal: {
     title: "DB_TERMINAL // sandbox",
     component: DatabaseTerminal,
@@ -54,14 +60,16 @@ export default function PoliceOS({ playerId }) {
 
     (async () => {
       // A brand-new officer (never opened the tutorial case) is walked
-      // through Operation Prashikshan first; everyone else lands straight
-      // on today's rotating case, same as before login existed.
+      // through Operation Prashikshan first, with the guide open
+      // alongside it; everyone else lands straight on today's rotating
+      // case, same as before login existed.
       const board = await fetchCaseBoard();
       const isFirstTimer = board?.tutorial && !board.tutorial.started;
       await initSession(playerId, isFirstTimer ? board.tutorial.case_id : undefined);
+      if (isFirstTimer) openWindow("howto");
       setBootstrapped(true);
     })();
-  }, [playerId, initSession, fetchCaseBoard]);
+  }, [playerId, initSession, fetchCaseBoard, openWindow]);
 
   if (!bootstrapped) {
     return (

@@ -1,8 +1,14 @@
 """
 Orchestrates the full CRAG loop for a single interrogation turn and exposes
 it as FastAPI routes: a plain JSON endpoint, an SSE streaming one, and a
-hint endpoint that reuses the evaluator's internal reasoning. This is the
-module the frontend's Secure Messenger app calls directly.
+hint endpoint. This is the module the frontend's Secure Messenger app calls
+directly.
+
+As of the dialogue-bank rework (backend/crag/dialogue_bank.py), none of
+evaluator/generator/hints call an LLM at request time anymore - they're
+all lookups against the DialogueBank generated once when the case was
+created. This module's job is unchanged: load state, grade the message,
+route to a reply, mutate progress on a layer break.
 """
 from __future__ import annotations
 
@@ -53,14 +59,15 @@ async def _prepare_turn(req: InterrogationRequest):
     layer_index = player_state.suspect_layer_index.get(req.suspect_id, 0)
     already_broken = player_state.suspect_broken.get(req.suspect_id, False)
     current_layer = suspect.alibi_layers[min(layer_index, len(suspect.alibi_layers) - 1)]
-    current_alibi_text = player_state.suspect_alibis.get(req.suspect_id, current_layer.public_text)
 
     unlocked_evidence = [e for e in case_file.evidence if e.id in player_state.unlocked_evidence_ids]
 
     evaluation = await evaluate_player_message(
         player_message=req.message,
         unlocked_evidence=unlocked_evidence,
-        suspect_alibi=current_alibi_text,
+        suspect_alibi=player_state.suspect_alibis.get(req.suspect_id, current_layer.public_text),
+        case_id=case_file.case_id,
+        current_layer_requires_evidence_id=current_layer.requires_evidence_id,
     )
 
     # A layer only actually breaks if the SPECIFIC evidence it requires was
@@ -75,18 +82,16 @@ async def _prepare_turn(req: InterrogationRequest):
     return player_state, case_file, suspect, layer_index, current_layer, evaluation, layer_break
 
 
-def _update_hint_tracking(player_state, suspect_id: str, evaluation, layer_break: bool) -> None:
+def _update_hint_tracking(player_state, suspect_id: str, layer_break: bool) -> None:
     """Every turn, whether or not it breaks a layer, feeds the hint system:
     reset the failed-attempt counter on a break (a new layer means a fresh
-    chance before hints kick in again), otherwise increment it and stash
-    the evaluator's reasoning as the raw material for the next hint call."""
+    chance before hints kick in again), otherwise increment it."""
     if layer_break:
         player_state.suspect_failed_attempts[suspect_id] = 0
     else:
         player_state.suspect_failed_attempts[suspect_id] = (
             player_state.suspect_failed_attempts.get(suspect_id, 0) + 1
         )
-    player_state.suspect_last_reasoning[suspect_id] = evaluation.reasoning
 
 
 async def _apply_layer_break(player_state, case_file, suspect, layer_index, current_layer) -> tuple[bool, list[str]]:
@@ -124,9 +129,18 @@ async def _maybe_record_case_solved(player_state, case_file) -> None:
 async def handle_interrogation(req: InterrogationRequest) -> InterrogationResponse:
     player_state, case_file, suspect, layer_index, current_layer, evaluation, layer_break = await _prepare_turn(req)
     player_state.interrogation_attempts += 1
-    _update_hint_tracking(player_state, req.suspect_id, evaluation, layer_break)
+    attempts_before = player_state.suspect_failed_attempts.get(req.suspect_id, 0)
+    _update_hint_tracking(player_state, req.suspect_id, layer_break)
 
-    reply = await generate_suspect_reply(player_message=req.message, evaluation=evaluation, suspect=suspect)
+    reply = await generate_suspect_reply(
+        case_id=case_file.case_id,
+        suspect=suspect,
+        layer_index=layer_index,
+        current_layer=current_layer,
+        evaluation=evaluation,
+        layer_break=layer_break,
+        attempts_made=attempts_before,
+    )
 
     newly_unlocked: list[str] = []
     fully_broken = player_state.suspect_broken.get(req.suspect_id, False)
@@ -153,17 +167,24 @@ async def handle_interrogation(req: InterrogationRequest) -> InterrogationRespon
 
 @router.post("/message/stream", dependencies=[Depends(INTERROGATION_RATE_LIMIT)])
 async def handle_interrogation_stream(req: InterrogationRequest) -> StreamingResponse:
-    """SSE variant: streams the suspect's reply token-by-token, then a final
-    `event: done` frame carrying the same metadata as the JSON endpoint, so
-    the frontend can render text live and still get trap/unlock state at
-    the end of the stream."""
+    """SSE variant: streams the suspect's reply word-by-word, then a final
+    `event: done` frame carrying the same metadata as the JSON endpoint."""
     player_state, case_file, suspect, layer_index, current_layer, evaluation, layer_break = await _prepare_turn(req)
     player_state.interrogation_attempts += 1
-    _update_hint_tracking(player_state, req.suspect_id, evaluation, layer_break)
+    attempts_before = player_state.suspect_failed_attempts.get(req.suspect_id, 0)
+    _update_hint_tracking(player_state, req.suspect_id, layer_break)
 
     async def event_stream():
         full_reply = ""
-        async for chunk in stream_suspect_reply(player_message=req.message, evaluation=evaluation, suspect=suspect):
+        async for chunk in stream_suspect_reply(
+            case_id=case_file.case_id,
+            suspect=suspect,
+            layer_index=layer_index,
+            current_layer=current_layer,
+            evaluation=evaluation,
+            layer_break=layer_break,
+            attempts_made=attempts_before,
+        ):
             full_reply += chunk
             yield f"event: token\ndata: {json.dumps({'text': chunk})}\n\n"
 
@@ -197,10 +218,10 @@ async def handle_interrogation_stream(req: InterrogationRequest) -> StreamingRes
 
 @router.post("/hint", response_model=HintResponse, dependencies=[Depends(HINT_RATE_LIMIT)])
 async def get_hint(req: HintRequest) -> HintResponse:
-    """Surfaces the evaluator's internal `reasoning` field as a softened,
-    in-world nudge - but only once the player has failed enough consecutive
-    attempts at their CURRENT layer (HINT_THRESHOLD), so it doesn't trivialize
-    a case someone is making steady progress on."""
+    """Pulls the pre-generated hint text for this suspect/layer/lock-state
+    from the dialogue bank - only once the player has failed enough
+    consecutive attempts at their CURRENT layer (HINT_THRESHOLD), so it
+    doesn't trivialize a case someone is making steady progress on."""
     player_state = await get_player_state(req.player_id, req.case_id)
     case_file = await get_case_file(player_state.case_id)
 
@@ -216,23 +237,16 @@ async def get_hint(req: HintRequest) -> HintResponse:
             attempts_until_hint=HINT_THRESHOLD - attempts,
         )
 
-    reasoning = player_state.suspect_last_reasoning.get(req.suspect_id)
-    if not reasoning:
-        # No message sent yet this layer - nothing to build a hint from.
-        return HintResponse(available=False, attempts_made=attempts, attempts_until_hint=0)
-
     layer_index = player_state.suspect_layer_index.get(req.suspect_id, 0)
     current_layer = suspect.alibi_layers[min(layer_index, len(suspect.alibi_layers) - 1)]
-    required_evidence = next(
-        (e for e in case_file.evidence if e.id == current_layer.requires_evidence_id), None
-    )
-    evidence_unlocked = required_evidence is not None and required_evidence.id in player_state.unlocked_evidence_ids
+    required_evidence_id = current_layer.requires_evidence_id
+    evidence_unlocked = required_evidence_id in player_state.unlocked_evidence_ids
 
     hint_text = await generate_hint(
-        reasoning=reasoning,
-        required_evidence_label=required_evidence.label if required_evidence else None,
+        case_id=case_file.case_id,
+        suspect_id=suspect.id,
+        layer_index=layer_index,
         evidence_unlocked=evidence_unlocked,
-        suspect_name=suspect.name,
     )
 
     return HintResponse(available=True, hint=hint_text, attempts_made=attempts, attempts_until_hint=0)

@@ -22,6 +22,28 @@ export default function EvidenceBoard() {
         </div>
       </div>
 
+      {caseFile.scene_riddle && (
+        <div>
+          <div style={{ color: "var(--text-dim)", textTransform: "uppercase", fontSize: 11, marginBottom: 6 }}>
+            Scene Briefing
+          </div>
+          <div
+            style={{
+              lineHeight: 1.6,
+              fontStyle: "italic",
+              color: "var(--accent-amber)",
+              whiteSpace: "pre-line",
+              border: "1px solid var(--panel-border)",
+              borderRadius: 2,
+              padding: "8px 10px",
+              background: "rgba(212,160,23,0.04)",
+            }}
+          >
+            {caseFile.scene_riddle}
+          </div>
+        </div>
+      )}
+
       <div>
         <div style={{ color: "var(--text-dim)", textTransform: "uppercase", fontSize: 11, marginBottom: 6 }}>
           Evidence ({unlockedEvidenceIds.length}/{caseFile.evidence.length} unlocked)

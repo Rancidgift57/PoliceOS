@@ -78,6 +78,14 @@ class CaseFile(BaseModel):
     victim: str
     crime_scene: str
     narrative_intro: str
+    scene_riddle: str = Field(
+        default="",
+        description=(
+            "A short riddle-style briefing on the crime scene environment - 2-4 cryptic lines "
+            "that hint at which suspect or evidence matters without stating it outright, meant "
+            "to help the player figure out which questions are worth asking."
+        ),
+    )
     suspects: List[Suspect]
     evidence: List[EvidenceItem]
     challenges: List[CodingChallenge]
@@ -132,6 +140,34 @@ class PlayerState(BaseModel):
 # --------------------------------------------------------------------------- #
 # CRAG
 # --------------------------------------------------------------------------- #
+
+class LayerDialogue(BaseModel):
+    """Everything needed to voice ONE suspect's ONE alibi layer without a
+    live LLM call: a small set of in-character deflection lines to rotate
+    through while the layer holds, and the two mentor-hint variants."""
+    denial_lines: List[str] = Field(default_factory=list)
+    hint_locked: str = Field(default="", description="Hint shown when the player hasn't unlocked the needed evidence yet")
+    hint_unlocked: str = Field(default="", description="Hint shown when the player has the evidence but isn't using it directly enough")
+
+
+class DialogueBank(BaseModel):
+    """Pre-generated once per case (see backend/crag/dialogue_bank.py),
+    stored alongside the case file, and read at interrogation time instead
+    of calling an LLM per message. This is what makes runtime interrogation
+    a pure DB lookup: no player message ever reaches the LLM provider, so
+    there's nothing on the wire for network inspection to reveal about the
+    solution beyond what a rule-based keyword match already needs.
+    """
+    case_id: str
+    # suspect_id -> {str(layer_index) -> LayerDialogue}. Plain-string keys
+    # (not int) because that's what a JSON object requires.
+    suspects: Dict[str, Dict[str, LayerDialogue]] = Field(default_factory=dict)
+    # evidence_id -> lowercase trigger phrases; if the player's message
+    # contains (or closely paraphrases) one of these, the evaluator counts
+    # that evidence as referenced. This is what replaces the old per-turn
+    # "does this message cite the evidence" LLM judgment.
+    evidence_triggers: Dict[str, List[str]] = Field(default_factory=dict)
+
 
 class EvidenceEvaluation(BaseModel):
     referenced_evidence_ids: List[str] = Field(

@@ -1,116 +1,106 @@
 """
-CRAG Step 1 + 2: Retrieval + Evaluator/Grader.
+CRAG Step 1 + 2: Retrieval + Evaluator/Grader - now entirely rule-based.
 
-Retrieval here is deliberately simple (a dict lookup against the player's
-game state) rather than a vector search, because the "documents" being
-retrieved are small, structured, per-case objects (evidence + alibi), not an
-open corpus. The correction/grading step is where the real CRAG behavior
-lives: a strict, low-temperature LLM call that must ground its verdict in
-the retrieved evidence and is not allowed to invent evidence that wasn't
-unlocked.
+This used to be a live, low-temperature LLM call per interrogation turn.
+It's now a lookup against each evidence item's pre-generated "trigger
+phrases" (see backend/crag/dialogue_bank.py, generated once per case at
+creation time and stored via state_store.save_dialogue_bank). Retrieval is
+still deliberately simple (a dict lookup against the player's game state,
+not a vector search) for the same reason as before: the "documents" are
+small, structured, per-case objects, not an open corpus.
 
-Runs on OpenRouter (any model string OpenRouter serves) via llm_client.
+Why this is safe to make rule-based: the trigger phrases were written by
+an LLM that saw the full evidence detail and case narrative, covering the
+natural ways a player might phrase an accusation - grading is just "does
+the player's message contain (or closely paraphrase) one of these
+pre-vetted phrases", which is exactly what the old LLM call was doing
+turn-by-turn, just computed once in advance instead of live every time.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
+import re
+from difflib import SequenceMatcher
 from typing import List
 
-from backend.cache import cache_get_json, cache_set_json
-from backend.llm_client import EVALUATOR_MODEL, structured_completion
 from backend.schemas import EvidenceEvaluation, EvidenceItem
+from backend.state_store import get_dialogue_bank
 
 logger = logging.getLogger("crag.evaluator")
 
-# The evaluator runs at temperature 0 with a fully-specified prompt, so the
-# same (evidence, alibi, message) triple always grades the same way. Caching
-# it cuts LLM spend on the common case of a player re-sending a near-
-# identical accusation, or retrying after a typo doesn't change the verdict.
-EVAL_CACHE_TTL_SECONDS = 60 * 10
+_WORD_RE = re.compile(r"[a-z0-9']+")
+
+# A trigger phrase counts as matched if it appears verbatim, OR if the
+# player's message shares this fraction or more of the phrase's words
+# (order-independent), which catches minor paraphrasing without needing
+# an LLM call to judge semantic similarity.
+_WORD_OVERLAP_THRESHOLD = 0.7
+# Fallback for single-longer-phrase near-misses (typos, word order swaps):
+# a straight sequence-similarity ratio against the normalized message.
+_SEQUENCE_SIMILARITY_THRESHOLD = 0.85
 
 
-def _retrieve_context(unlocked_evidence: List[EvidenceItem]) -> str:
-    """Step 1 (Retrieval): format only the evidence the player has actually
-    unlocked. Locked evidence is never shown to the evaluator, so the model
-    can't accidentally credit the player for something they haven't earned."""
-    if not unlocked_evidence:
-        return "(The player has not unlocked any evidence yet.)"
-    return json.dumps(
-        [{"id": e.id, "detail": e.detail} for e in unlocked_evidence],
-        indent=2,
-    )
+def _normalize(text: str) -> str:
+    return " ".join(_WORD_RE.findall(text.lower()))
 
 
-def _cache_key(player_message: str, unlocked_evidence: List[EvidenceItem], suspect_alibi: str) -> str:
-    fingerprint = json.dumps(
-        {
-            "message": player_message.strip().lower(),
-            "evidence": sorted(e.id for e in unlocked_evidence),
-            "alibi": suspect_alibi,
-        },
-        sort_keys=True,
-    )
-    digest = hashlib.sha256(fingerprint.encode()).hexdigest()[:24]
-    return f"eval_cache:{digest}"
+def _phrase_matches(message_norm: str, phrase_norm: str) -> bool:
+    if not phrase_norm:
+        return False
+    if phrase_norm in message_norm:
+        return True
+
+    phrase_words = set(phrase_norm.split())
+    if phrase_words:
+        message_words = set(message_norm.split())
+        overlap = len(phrase_words & message_words) / len(phrase_words)
+        if overlap >= _WORD_OVERLAP_THRESHOLD:
+            return True
+
+    return SequenceMatcher(None, phrase_norm, message_norm).ratio() >= _SEQUENCE_SIMILARITY_THRESHOLD
 
 
 async def evaluate_player_message(
     player_message: str,
     unlocked_evidence: List[EvidenceItem],
     suspect_alibi: str,
+    case_id: str,
+    current_layer_requires_evidence_id: str,
 ) -> EvidenceEvaluation:
-    """Step 2 (Evaluator/Grader): binary, evidence-grounded verdict.
+    """Grades whether the player's message legitimately cites a piece of
+    UNLOCKED evidence, and whether that citation is the specific evidence
+    needed to break the suspect's CURRENT alibi layer.
 
-    Runs at temperature 0 with a strict JSON-mode schema so the grading
-    decision can never leak into the player-facing narrative voice, and so
-    downstream routing logic (Step 3) can branch on a clean boolean instead
-    of parsing free text. Checks a short-lived cache first.
+    Locked evidence is never checked against - only evidence the player has
+    actually unlocked is considered, same guarantee the old LLM prompt
+    enforced by simply never being shown locked evidence in its context.
     """
-    cache_key = _cache_key(player_message, unlocked_evidence, suspect_alibi)
-    cached = await cache_get_json(cache_key)
-    if cached is not None:
-        logger.info("CRAG eval | cache hit")
-        return EvidenceEvaluation.model_validate(cached)
+    message_norm = _normalize(player_message)
+    bank = await get_dialogue_bank(case_id)
 
-    evidence_context = _retrieve_context(unlocked_evidence)
+    referenced: List[str] = []
+    for evidence in unlocked_evidence:
+        phrases = bank.evidence_triggers.get(evidence.id, [])
+        if any(_phrase_matches(message_norm, _normalize(p)) for p in phrases):
+            referenced.append(evidence.id)
 
-    system_prompt = f"""You are an impartial forensic evaluator inside a detective game.
-Your ONLY job is to grade whether the player's interrogation message legitimately
-uses evidence they have unlocked to contradict the suspect's current alibi.
+    uses_valid_evidence = len(referenced) > 0
+    contradicts_alibi = current_layer_requires_evidence_id in referenced
 
-CURRENT SUSPECT ALIBI:
-{suspect_alibi}
-
-PLAYER'S UNLOCKED EVIDENCE (the ONLY evidence you may credit them for):
-{evidence_context}
-
-GRADING RULES:
-1. The player must EXPLICITLY reference the substance of a piece of unlocked evidence.
-   Vague accusations, guesses, or bluffing do not count, even if they happen to be true.
-2. Evidence the player has NOT unlocked must never be credited, even if the player
-   somehow guesses it correctly.
-3. The referenced evidence must actually create a logical contradiction with the
-   CURRENT alibi text above, not just be generally related to the suspect.
-4. Return the ids of every unlocked evidence item the message actually referenced.
-5. Be strict. When in doubt, grade it as not using valid evidence.
-"""
-
-    evaluation = await structured_completion(
-        schema=EvidenceEvaluation,
-        system_prompt=system_prompt,
-        user_prompt=f"Player message: {player_message}",
-        model=EVALUATOR_MODEL,
-        temperature=0.0,
-        max_tokens=400,
-    )
+    if contradicts_alibi:
+        reasoning = f"Message cited evidence '{current_layer_requires_evidence_id}', which breaks the current layer."
+    elif uses_valid_evidence:
+        reasoning = f"Message cited {referenced}, but not the evidence this layer needs ({current_layer_requires_evidence_id})."
+    else:
+        reasoning = "Message didn't match any trigger phrase for the player's unlocked evidence."
 
     logger.info(
-        "CRAG eval | trap_successful=%s referenced=%s reasoning=%s",
-        evaluation.trap_successful,
-        evaluation.referenced_evidence_ids,
-        evaluation.reasoning,
+        "CRAG eval (rule-based) | referenced=%s contradicts_alibi=%s", referenced, contradicts_alibi
     )
-    await cache_set_json(cache_key, evaluation.model_dump(mode="json"), ttl_seconds=EVAL_CACHE_TTL_SECONDS)
-    return evaluation
+
+    return EvidenceEvaluation(
+        referenced_evidence_ids=referenced,
+        uses_valid_evidence=uses_valid_evidence,
+        contradicts_alibi=contradicts_alibi,
+        reasoning=reasoning,
+    )

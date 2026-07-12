@@ -27,11 +27,12 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel, Field
 
+from backend.crag.dialogue_bank import generate_dialogue_bank
 from backend.generation.indian_theme import challenge_label, pick_codename
 from backend.llm_client import NARRATIVE_MODEL, structured_completion
 from backend.paths import BACKEND_DIR
 from backend.schemas import AlibiLayer, CaseFile, CodingChallenge, EvidenceItem, Suspect
-from backend.state_store import save_case_file
+from backend.state_store import save_case_file, save_dialogue_bank
 
 logger = logging.getLogger("generation.daily_case")
 router = APIRouter(prefix="/api/admin", tags=["generation"])
@@ -63,6 +64,14 @@ class NarrativeWrapper(BaseModel):
     victim: str
     crime_scene: str
     narrative_intro: str
+    scene_riddle: str = Field(
+        description=(
+            "A short, cryptic 2-4 line riddle about the crime scene environment - written like "
+            "something a sharp detective would jot in the margins, not a direct summary. It should "
+            "point an attentive player toward which suspect or piece of evidence matters most, "
+            "without naming them outright or giving away the solution."
+        )
+    )
     suspects: List[SuspectNarrative]
     evidence_label: str = Field(description="Player-facing label for the evidence the coding challenge recovers")
     evidence_detail: str = Field(description="Full detail text used by the CRAG evaluator for that evidence")
@@ -152,6 +161,10 @@ For each suspect write:
 
 Also write evidence_label (short) and evidence_detail (one sentence, specific enough to
 logically contradict an alibi) for the evidence this coding challenge recovers.
+
+Also write scene_riddle: 2-4 cryptic lines about the crime scene that a sharp player could use
+to guess which suspect or evidence to focus on - riddle-style, not a plain restatement of the
+narrative_intro.
 
 Keep narrative_intro under 120 words. Output must match the required schema exactly."""
 
@@ -260,6 +273,7 @@ async def generate_daily_case(template_index: Optional[int] = None) -> CaseFile:
         victim=narrative.victim,
         crime_scene=narrative.crime_scene,
         narrative_intro=narrative.narrative_intro,
+        scene_riddle=narrative.scene_riddle,
         suspects=suspects,
         evidence=evidence,
         challenges=[
@@ -279,7 +293,18 @@ async def generate_daily_case(template_index: Optional[int] = None) -> CaseFile:
         ],
     )
 
+    # One extra, batched LLM call here - covering every suspect/layer and
+    # every evidence item at once - replaces what would otherwise be a
+    # live LLM call on every single interrogation message and hint request
+    # for the entire lifetime of this case. Generated BEFORE the case is
+    # published as "latest": if this call fails, the whole generation
+    # fails atomically rather than publishing a case whose evidence
+    # citations can never match anything. See backend/crag/dialogue_bank.py.
+    dialogue_bank = await generate_dialogue_bank(case_file)
+
     await save_case_file(case_file)
+    await save_dialogue_bank(dialogue_bank)
+
     logger.info("Generated daily case %s (%s): %s", case_id, template["template_id"], case_file.title)
     return case_file
 

@@ -16,8 +16,8 @@ from datetime import datetime, timezone
 
 from backend.generation.indian_theme import TUTORIAL_CODENAME, TUTORIAL_TITLE
 from backend.paths import BACKEND_DIR
-from backend.schemas import AlibiLayer, CaseFile, CodingChallenge, EvidenceItem, Suspect
-from backend.state_store import save_case_file
+from backend.schemas import AlibiLayer, CaseFile, CodingChallenge, DialogueBank, EvidenceItem, LayerDialogue, Suspect
+from backend.state_store import save_case_file, save_dialogue_bank
 
 TUTORIAL_CASE_ID = "case_tutorial"
 
@@ -85,6 +85,12 @@ def build_tutorial_case() -> CaseFile:
             "one discrepancy it's hiding, then use it in SECURE_MESSENGER to get Head "
             "Constable Bhonsle to admit what really happened that night."
         ),
+        scene_riddle=(
+            "Seven names stand watch on paper, but only five stood watch in fact.\n"
+            "One post claims a guardian who was never there at all.\n"
+            "Follow the badge that doesn't add up, and the post that was never filled -\n"
+            "the one who filed the log knows exactly which is which."
+        ),
         suspects=[suspect],
         evidence=[
             EvidenceItem(
@@ -127,8 +133,47 @@ def build_tutorial_case() -> CaseFile:
     )
 
 
+def _build_tutorial_dialogue_bank() -> DialogueBank:
+    """Hand-authored, not LLM-generated - the tutorial stays instant and
+    free to (re)seed on every backend startup, same as the rest of it."""
+    return DialogueBank(
+        case_id=TUTORIAL_CASE_ID,
+        suspects={
+            "sus_head_constable": {
+                "0": LayerDialogue(
+                    denial_lines=[
+                        "\"The roster is accurate, sir. Every post was manned exactly as logged.\"",
+                        "\"I stand by what's written there. Nothing irregular about that night.\"",
+                        "\"With respect, Officer, you're reading too much into a routine log.\"",
+                    ],
+                    hint_locked=(
+                        "Clean the duty log first - the discrepancy is hiding in plain sight "
+                        "among the corrupted entries."
+                    ),
+                    hint_unlocked=(
+                        "You already know which post doesn't add up - say it plainly, don't hint at it."
+                    ),
+                )
+            }
+        },
+        evidence_triggers={
+            "ev_tutorial_duty_log": [
+                "fort chowki",
+                "night shift",
+                "badge 1188",
+                "the post was empty",
+                "padded entry",
+                "duty log doesn't match",
+            ]
+        },
+    )
+
+
 async def ensure_tutorial_case_exists() -> None:
     """Called on every backend startup. Cheap and idempotent - just
-    re-seeds the fixed tutorial case file (never touches player progress
-    against it, since that lives in a separate per-player key)."""
-    await save_case_file(build_tutorial_case())
+    re-seeds the fixed tutorial case file and its dialogue bank (never
+    touches player progress against it, since that lives in a separate
+    per-player key)."""
+    case_file = build_tutorial_case()
+    await save_case_file(case_file)
+    await save_dialogue_bank(_build_tutorial_dialogue_bank())

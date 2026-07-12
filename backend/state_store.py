@@ -14,7 +14,7 @@ from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from backend.cache import cache_get_json, cache_incr, cache_set_json
-from backend.schemas import CaseFile, DailyLeaderboard, LeaderboardEntry, PlayerState, PlayerStats
+from backend.schemas import CaseFile, DailyLeaderboard, DialogueBank, LeaderboardEntry, PlayerState, PlayerStats
 
 PLAYER_STATE_TTL_SECONDS = 60 * 60 * 24 * 3  # 3 days - plenty for a daily game
 _LATEST_CASE_KEY = "case:latest_id"
@@ -36,6 +36,26 @@ async def get_case_file(case_id: str) -> CaseFile:
     if raw is None:
         raise KeyError(f"No case file loaded for case_id={case_id!r}")
     return CaseFile.model_validate(raw)
+
+
+async def save_dialogue_bank(bank: DialogueBank) -> None:
+    """The pre-generated denial lines / hints / evidence trigger-phrases
+    for a case (see backend/crag/dialogue_bank.py), stored right alongside
+    the case file itself so interrogation, hints, and grading can all read
+    it back with a plain cache lookup instead of calling the LLM."""
+    await cache_set_json(f"case:{bank.case_id}:dialogue_bank", bank.model_dump(mode="json"))
+
+
+async def get_dialogue_bank(case_id: str) -> DialogueBank:
+    """Returns an empty (but valid) bank if none was generated - this only
+    happens for a case that was already in flight when this feature
+    shipped. Rule-based code downstream falls back to each suspect's
+    authored public_text/reveal_text and a generic mentor line in that
+    case, rather than crashing."""
+    raw = await cache_get_json(f"case:{case_id}:dialogue_bank")
+    if raw is None:
+        return DialogueBank(case_id=case_id)
+    return DialogueBank.model_validate(raw)
 
 
 async def get_latest_case_id() -> str:
