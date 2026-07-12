@@ -430,8 +430,6 @@ not a bug.
 
 ## Roadmap / not yet wired
 
-- **Production persistence** — `cache.py` is in-memory by default; set `REDIS_URL` for
-  anything beyond local dev, especially on serverless platforms.
 - **External cron for rotation** — `scheduler.py`'s in-process APScheduler is fine for a
   single instance; on a multi-instance deploy, trigger `/api/admin/generate-daily-case`
   from an external scheduler instead so it doesn't fire twice.
@@ -443,5 +441,8 @@ not a bug.
 
 ---
 
-*Built as a genuine coding-practice loop wearing a detective-noir coat — every "aha" moment
-is a real, gradeable line of Python, not a cutscene.*
+## Contact
+ - **Email** - nnair7598@gmail.com
+ - **LinkedIn** - https://www.linkedin.com/in/nikhil-nair-809248286
+
+## Thank You
